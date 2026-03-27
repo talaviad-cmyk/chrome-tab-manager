@@ -435,6 +435,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'SEARCH_TABS') {
+    (async () => {
+      const allTabs = await chrome.tabs.query({});
+      const { renamedTabs = {} } = await chrome.storage.local.get('renamedTabs');
+      const tabs = allTabs
+        .filter(t => t.url && !t.url.startsWith('chrome-extension://'))
+        .map(t => ({
+          id: t.id,
+          title: renamedTabs[t.id]?.title || t.title || '',
+          url: t.url,
+          favIconUrl: t.favIconUrl || '',
+          windowId: t.windowId,
+          pinned: t.pinned,
+          groupId: t.groupId,
+        }));
+      sendResponse({ tabs });
+    })();
+    return true;
+  }
+
   if (message.type === 'BACK_TO_PINNED') {
     (async () => {
       const tabId = sender.tab?.id;

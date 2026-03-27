@@ -91,6 +91,32 @@
     }
   });
 
+  // --- Cmd+K: Tab search ---
+
+  let isSearchOpen = false;
+  let searchOverlay = null;
+
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.metaKey && e.key === 'k' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isSearchOpen) {
+          closeSearch();
+        } else {
+          chrome.runtime.sendMessage({ type: 'SEARCH_TABS' }, (response) => {
+            if (chrome.runtime.lastError) return;
+            if (response?.tabs) {
+              showTabSearch(response.tabs);
+            }
+          });
+        }
+      }
+    },
+    true,
+  );
+
   // --- Cmd+Shift+C: Copy current tab URL to clipboard ---
 
   window.addEventListener(
@@ -515,6 +541,158 @@
         closeSwitcher();
         break;
     }
+  }
+
+  // ==========================================================================
+  // TAB SEARCH
+  // ==========================================================================
+
+  function showTabSearch(tabs) {
+    if (searchOverlay) closeSearch();
+
+    isSearchOpen = true;
+    let searchSelectedIndex = 0;
+    let filteredTabs = tabs;
+
+    searchOverlay = document.createElement('div');
+    searchOverlay.className = 'tm-overlay';
+
+    const panel = document.createElement('div');
+    panel.className = 'tm-search-panel';
+
+    const input = document.createElement('input');
+    input.className = 'tm-search-input';
+    input.type = 'text';
+    input.placeholder = 'Search tabs by title or URL...';
+
+    const list = document.createElement('div');
+    list.className = 'tm-search-list';
+
+    const hint = document.createElement('div');
+    hint.className = 'tm-hint';
+    hint.style.marginTop = '8px';
+    hint.innerHTML = '<kbd>↑</kbd> <kbd>↓</kbd> navigate · <kbd>Enter</kbd> switch · <kbd>Esc</kbd> close';
+
+    panel.appendChild(input);
+    panel.appendChild(list);
+    panel.appendChild(hint);
+    searchOverlay.appendChild(panel);
+    shadow.appendChild(searchOverlay);
+
+    function renderList() {
+      list.innerHTML = '';
+      const items = filteredTabs.slice(0, 20);
+      items.forEach((tab, i) => {
+        const row = document.createElement('div');
+        row.className = 'tm-search-item' + (i === searchSelectedIndex ? ' tm-selected' : '');
+
+        let hostname = '';
+        try { hostname = new URL(tab.url).hostname; } catch {}
+
+        const favicon = tab.favIconUrl
+          ? `<img class="tm-favicon" src="${tab.favIconUrl}" onerror="this.style.display='none'">`
+          : '';
+
+        row.innerHTML = `
+          ${favicon}
+          <span class="tm-search-title">${escapeHtml(tab.title)}</span>
+          <span class="tm-search-url">${escapeHtml(hostname)}</span>
+        `;
+
+        row.addEventListener('click', () => {
+          chrome.runtime.sendMessage({
+            type: 'SWITCH_TO_TAB',
+            tabId: tab.id,
+            windowId: tab.windowId,
+          });
+          closeSearch();
+        });
+
+        list.appendChild(row);
+      });
+
+      if (filteredTabs.length > 20) {
+        const more = document.createElement('div');
+        more.className = 'tm-search-more';
+        more.textContent = `...and ${filteredTabs.length - 20} more`;
+        list.appendChild(more);
+      }
+
+      if (filteredTabs.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'tm-search-more';
+        empty.textContent = 'No matching tabs';
+        list.appendChild(empty);
+      }
+    }
+
+    function fuzzyMatch(query, text) {
+      const q = query.toLowerCase();
+      const t = text.toLowerCase();
+      // Simple substring match on each word
+      return q.split(/\s+/).every(word => t.includes(word));
+    }
+
+    function filterTabs() {
+      const query = input.value.trim();
+      if (!query) {
+        filteredTabs = tabs;
+      } else {
+        filteredTabs = tabs.filter(t =>
+          fuzzyMatch(query, t.title) || fuzzyMatch(query, t.url)
+        );
+      }
+      searchSelectedIndex = 0;
+      renderList();
+    }
+
+    input.addEventListener('input', filterTabs);
+
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        searchSelectedIndex = Math.min(searchSelectedIndex + 1, Math.min(filteredTabs.length - 1, 19));
+        renderList();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        searchSelectedIndex = Math.max(searchSelectedIndex - 1, 0);
+        renderList();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const tab = filteredTabs[searchSelectedIndex];
+        if (tab) {
+          chrome.runtime.sendMessage({
+            type: 'SWITCH_TO_TAB',
+            tabId: tab.id,
+            windowId: tab.windowId,
+          });
+          closeSearch();
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSearch();
+      }
+    });
+
+    searchOverlay.addEventListener('click', (e) => {
+      if (e.target === searchOverlay) closeSearch();
+    });
+
+    renderList();
+    requestAnimationFrame(() => input.focus());
+  }
+
+  function closeSearch() {
+    if (searchOverlay) {
+      searchOverlay.remove();
+      searchOverlay = null;
+    }
+    isSearchOpen = false;
+  }
+
+  function escapeHtml(str) {
+    return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   // ==========================================================================
