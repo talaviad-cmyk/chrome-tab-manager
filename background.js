@@ -41,6 +41,11 @@ function initialize() {
       title: 'Import Dia Tabs...',
       contexts: ['page'],
     });
+    chrome.contextMenus.create({
+      id: 'open-workspaces',
+      title: 'Tab Workspaces...',
+      contexts: ['page'],
+    });
   });
 
   chrome.storage.session.setAccessLevel({
@@ -240,6 +245,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'import-dia-tabs') {
     chrome.tabs.create({ url: chrome.runtime.getURL('import.html') });
   }
+  if (info.menuItemId === 'open-workspaces') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('workspaces.html') });
+  }
 });
 
 async function setCurrentAsPinnedUrl(tab) {
@@ -430,6 +438,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } catch {
         // Window may have closed
       }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message.type === 'QUICK_SAVE_WORKSPACE') {
+    (async () => {
+      const allTabs = await chrome.tabs.query({ currentWindow: true });
+      let groups = [];
+      try {
+        groups = await chrome.tabGroups.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+      } catch {}
+
+      const groupMap = {};
+      for (const g of groups) {
+        groupMap[g.id] = {
+          name: g.title || '',
+          color: g.color || 'grey',
+          collapsed: g.collapsed || false,
+          tabs: [],
+        };
+      }
+
+      const pinnedTabs = [];
+      const ungroupedTabs = [];
+
+      for (const tab of allTabs) {
+        if (tab.url.startsWith('chrome-extension://') || tab.url.startsWith('chrome://')) continue;
+        const entry = { url: tab.url, title: tab.title || '', favIconUrl: tab.favIconUrl || '' };
+        if (tab.pinned) {
+          pinnedTabs.push(entry);
+        } else if (tab.groupId !== -1 && groupMap[tab.groupId]) {
+          groupMap[tab.groupId].tabs.push(entry);
+        } else {
+          ungroupedTabs.push(entry);
+        }
+      }
+
+      const workspace = {
+        name: message.name,
+        savedAt: new Date().toISOString(),
+        pinnedTabs,
+        groups: Object.values(groupMap).filter(g => g.tabs.length > 0),
+        ungroupedTabs,
+      };
+
+      const { workspaces = [] } = await chrome.storage.local.get('workspaces');
+      workspaces.unshift(workspace);
+      await chrome.storage.local.set({ workspaces });
       sendResponse({ ok: true });
     })();
     return true;

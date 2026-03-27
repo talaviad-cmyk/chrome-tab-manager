@@ -2,3 +2,7 @@
 *.swp
 *.swo
 *~
+node_modules/
+test-screenshots/
+package.json
+package-lock.json

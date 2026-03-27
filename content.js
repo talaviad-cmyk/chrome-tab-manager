@@ -117,6 +117,31 @@
     true,
   );
 
+  // --- Cmd+Shift+W: Quick save workspace ---
+
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.metaKey && e.shiftKey && e.key === 'w') {
+        e.preventDefault();
+        e.stopPropagation();
+        const name = prompt('Workspace name:');
+        if (name && name.trim()) {
+          chrome.runtime.sendMessage({
+            type: 'QUICK_SAVE_WORKSPACE',
+            name: name.trim(),
+          }, (response) => {
+            if (chrome.runtime.lastError) return;
+            if (response?.ok) {
+              showToast(`Workspace "${name.trim()}" saved`);
+            }
+          });
+        }
+      }
+    },
+    true,
+  );
+
   // --- Cmd+Shift+C: Copy current tab URL to clipboard ---
 
   window.addEventListener(
