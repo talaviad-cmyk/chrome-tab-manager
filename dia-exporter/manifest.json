@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Dia Tab Exporter",
+  "version": "1.0.0",
+  "description": "Export tabs, groups, and pinned tabs to JSON for Chrome import.",
+  "permissions": [
+    "tabs",
+    "tabGroups"
+  ],
+  "action": {
+    "default_title": "Export Tabs"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Dia Tab Exporter</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1e1e1e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 30px;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 22px; color: #fff; margin-bottom: 4px; }
+    .subtitle { color: #888; font-size: 13px; margin-bottom: 20px; }
+
+    .toolbar {
+      display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+    }
+    button {
+      padding: 7px 14px; border: none; border-radius: 6px; font-size: 13px;
+      font-weight: 500; cursor: pointer; transition: opacity .15s;
+    }
+    button:hover { opacity: .85; }
+    button:disabled { opacity: .4; cursor: default; }
+    .btn-blue { background: #4a9eff; color: #fff; }
+    .btn-green { background: #34a853; color: #fff; }
+    .btn-orange { background: #fa903e; color: #fff; }
+    .btn-grey { background: #444; color: #ccc; }
+    .btn-red { background: #ea4335; color: #fff; }
+
+    input[type="text"] {
+      padding: 7px 10px; border: 1px solid #444; border-radius: 6px;
+      background: #1a1a1a; color: #fff; font-size: 13px; outline: none;
+    }
+    input[type="text"]:focus { border-color: #4a9eff; }
+
+    .stats {
+      display: flex; gap: 16px; margin-bottom: 16px; font-size: 12px; color: #888;
+    }
+    .stats span { color: #4a9eff; font-weight: 600; }
+
+    /* Tab list */
+    .tab-list { margin-bottom: 20px; }
+    .group-section {
+      margin-bottom: 16px; background: #2a2a2a; border-radius: 10px; overflow: hidden;
+    }
+    .group-header {
+      display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+      background: #333; font-size: 13px; font-weight: 600;
+    }
+    .group-header .color-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+    }
+    .group-header .remove-group {
+      margin-left: auto; background: none; border: none; color: #888;
+      cursor: pointer; font-size: 16px; padding: 0 4px;
+    }
+    .group-header .remove-group:hover { color: #ea4335; }
+
+    .tab-item {
+      display: flex; align-items: center; gap: 8px; padding: 6px 14px;
+      font-size: 12px; border-bottom: 1px solid #333; cursor: pointer;
+      transition: background .1s;
+    }
+    .tab-item:hover { background: #333; }
+    .tab-item:last-child { border-bottom: none; }
+    .tab-item input[type="checkbox"] { flex-shrink: 0; cursor: pointer; }
+    .tab-item .favicon {
+      width: 16px; height: 16px; flex-shrink: 0; border-radius: 2px;
+    }
+    .tab-item .title {
+      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .tab-item .url {
+      color: #666; font-size: 11px; max-width: 250px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .tab-item.selected { background: rgba(74, 158, 255, 0.1); }
+    .tab-item .pin-badge {
+      background: #fa903e; color: #fff; font-size: 9px; padding: 1px 5px;
+      border-radius: 3px; font-weight: 600;
+    }
+
+    .export-section {
+      position: sticky; bottom: 0; background: #1e1e1e;
+      padding: 16px 0; border-top: 1px solid #333;
+    }
+    .export-row {
+      display: flex; gap: 10px; align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Dia Tab Exporter</h1>
+    <p class="subtitle">
+      Dia uses proprietary groups — select tabs below to organize them into groups before exporting.
+      Check tabs to select them, then use the toolbar to create groups or mark as pinned.
+    </p>
+    <div id="stats" class="stats"></div>
+    <div class="toolbar">
+      <button class="btn-blue" id="createGroupBtn" disabled>Create Group from Selected</button>
+      <button class="btn-orange" id="markPinnedBtn" disabled>Mark Selected as Pinned</button>
+      <button class="btn-grey" id="selectAllBtn">Select All</button>
+      <button class="btn-grey" id="deselectAllBtn">Deselect All</button>
+    </div>
+    <div id="tabList" class="tab-list">Loading tabs...</div>
+    <div class="export-section">
+      <div class="export-row">
+        <input type="text" id="profileName" placeholder="Profile name (e.g. Tres)" style="flex:1">
+        <button class="btn-green" id="exportBtn" style="padding:10px 24px;font-size:14px;">Export JSON</button>
+      </div>
+    </div>
+  </div>
+  <script src="export.js"></script>
+</body>
+</html>
