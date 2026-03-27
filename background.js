@@ -560,40 +560,38 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const entry = renamedTabs[tabId];
   if (!entry) return;
 
-  // Verify URL still roughly matches (same origin)
+  // Only apply title if the URL is on the same origin as when it was renamed.
+  // If different origin, skip but DON'T delete — user may navigate back.
   try {
     const savedOrigin = new URL(entry.url).origin;
     const currentOrigin = new URL(tab.url).origin;
     if (savedOrigin !== currentOrigin) {
-      // Stale entry — different origin, clean up
-      delete renamedTabs[tabId];
-      await chrome.storage.local.set({ renamedTabs });
-      return;
+      return; // Skip, but keep the entry for when user returns
     }
   } catch {
     return;
   }
 
-  try {
-    await chrome.tabs.sendMessage(tabId, {
-      type: 'APPLY_CUSTOM_TITLE',
-      title: entry.title,
-    });
-  } catch {
-    // Content script not yet ready — try injecting
+  // Send title restoration — try multiple times because:
+  // 1. Content script may not be ready yet (just navigated)
+  // 2. SPA pages may overwrite the title AFTER status:complete
+  async function applyTitle(tid, title) {
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        files: ['content.js'],
-      });
-      await chrome.tabs.sendMessage(tabId, {
-        type: 'APPLY_CUSTOM_TITLE',
-        title: entry.title,
-      });
+      await chrome.tabs.sendMessage(tid, { type: 'APPLY_CUSTOM_TITLE', title });
     } catch {
-      // Restricted page
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tid }, files: ['content.js'] });
+        await new Promise(r => setTimeout(r, 100));
+        await chrome.tabs.sendMessage(tid, { type: 'APPLY_CUSTOM_TITLE', title });
+      } catch {}
     }
   }
+
+  await applyTitle(tabId, entry.title);
+  // Retry after delays to catch late SPA title changes
+  setTimeout(() => applyTitle(tabId, entry.title), 500);
+  setTimeout(() => applyTitle(tabId, entry.title), 1500);
+  setTimeout(() => applyTitle(tabId, entry.title), 3000);
 });
 
 // --- Helper: Send message to tab with fallback injection ---
