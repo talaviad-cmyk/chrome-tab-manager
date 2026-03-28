@@ -96,10 +96,30 @@
   let isSearchOpen = false;
   let searchOverlay = null;
 
+  // Block ALL keyboard events while search is open — prevents Gmail shortcuts,
+  // other extensions, and Chrome from firing while typing in the search input.
+  // Must block keydown, keypress, and keyup on both window and document.
+  function searchEventBlocker(e) {
+    if (!isSearchOpen) return;
+    // Let these through to the search input handler
+    if (e.key === 'Escape') return;
+    if (e.key === 'Enter') return;
+    if (e.key === 'ArrowUp') return;
+    if (e.key === 'ArrowDown') return;
+    if (e.metaKey && e.code === 'KeyK') return;
+    // Block everything else from reaching the page (Gmail shortcuts, etc.)
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+  }
+  for (const eventType of ['keydown', 'keypress', 'keyup']) {
+    window.addEventListener(eventType, searchEventBlocker, true);
+    document.addEventListener(eventType, searchEventBlocker, true);
+  }
+
   window.addEventListener(
     'keydown',
     (e) => {
-      if (e.metaKey && e.key === 'k' && !e.shiftKey && !e.altKey) {
+      if (e.metaKey && e.code === 'KeyK' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
         if (isSearchOpen) {
@@ -122,7 +142,7 @@
   window.addEventListener(
     'keydown',
     (e) => {
-      if (e.metaKey && e.shiftKey && e.key === 'w') {
+      if (e.metaKey && e.shiftKey && e.code === 'KeyW') {
         e.preventDefault();
         e.stopPropagation();
         const name = prompt('Workspace name:');
@@ -147,7 +167,7 @@
   window.addEventListener(
     'keydown',
     (e) => {
-      if (e.metaKey && e.shiftKey && e.key === 'c') {
+      if (e.metaKey && e.shiftKey && e.code === 'KeyC') {
         e.preventDefault();
         e.stopPropagation();
         navigator.clipboard.writeText(location.href).then(() => {
@@ -596,7 +616,7 @@
     const hint = document.createElement('div');
     hint.className = 'tm-hint';
     hint.style.marginTop = '8px';
-    hint.innerHTML = '<kbd>↑</kbd> <kbd>↓</kbd> navigate · <kbd>Enter</kbd> switch · <kbd>Esc</kbd> close';
+    hint.innerHTML = '<kbd>↑</kbd> <kbd>↓</kbd> navigate · <kbd>Enter</kbd> switch or search Google · <kbd>Esc</kbd> close';
 
     panel.appendChild(input);
     panel.appendChild(list);
@@ -635,6 +655,10 @@
 
         list.appendChild(row);
       });
+
+      // Scroll selected item into view
+      const selected = list.querySelector('.tm-selected');
+      if (selected) selected.scrollIntoView({ block: 'nearest' });
 
       if (filteredTabs.length > 20) {
         const more = document.createElement('div');
@@ -692,6 +716,11 @@
             tabId: tab.id,
             windowId: tab.windowId,
           });
+          closeSearch();
+        } else if (input.value.trim()) {
+          // No matching tabs — search Google
+          const query = encodeURIComponent(input.value.trim());
+          window.open(`https://www.google.com/search?q=${query}`, '_blank');
           closeSearch();
         }
       } else if (e.key === 'Escape') {
