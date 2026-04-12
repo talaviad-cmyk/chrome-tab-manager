@@ -262,6 +262,11 @@
   function showRenameDialog() {
     if (renameOverlay) closeRenameDialog();
 
+    // Signal to Vimium (and similar extensions) that we're editing text.
+    // With a closed Shadow DOM, document.activeElement returns the host <div>,
+    // not the <input> inside. Vimium checks isContentEditable to decide whether
+    // to enter "insert mode" and pass through keypresses.
+    host.contentEditable = 'true';
     renameOverlay = document.createElement('div');
     renameOverlay.className = 'tm-overlay';
     renameOverlay.innerHTML = `
@@ -335,6 +340,7 @@
   }
 
   function closeRenameDialog() {
+    host.removeAttribute('contenteditable');
     if (renameOverlay) {
       renameOverlay.remove();
       renameOverlay = null;
