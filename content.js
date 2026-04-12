@@ -212,16 +212,24 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     switch (message.type) {
+      case 'PING':
+        sendResponse({ ok: true });
+        break;
+
       case 'SHOW_RENAME_DIALOG':
         showRenameDialog();
         sendResponse({ ok: true });
         break;
 
       case 'SHOW_TAB_SWITCHER':
+        console.log(`[SWITCHER-CS] ${new Date().toISOString()} Received SHOW_TAB_SWITCHER, isOpen=${isSwitcherOpen}, tabs=${message.tabs?.length}, direction=${message.direction}`);
         if (isSwitcherOpen) {
+          console.log(`[SWITCHER-CS] Advancing selection`);
           advanceSelection(message.direction);
         } else {
+          console.log(`[SWITCHER-CS] Opening switcher overlay`);
           showTabSwitcher(message.tabs, message.direction);
+          console.log(`[SWITCHER-CS] Overlay shown`);
         }
         sendResponse({ ok: true });
         break;

@@ -4,6 +4,21 @@
 
 let captureTimeout = null;
 
+// --- In-memory cache for renamedTabs (chrome.storage.local is slow on SW wake) ---
+let renamedTabsCache = null;
+
+async function getRenamedTabs() {
+  if (renamedTabsCache !== null) return renamedTabsCache;
+  const { renamedTabs = {} } = await chrome.storage.local.get('renamedTabs');
+  renamedTabsCache = renamedTabs;
+  return renamedTabsCache;
+}
+
+async function setRenamedTabs(renamedTabs) {
+  renamedTabsCache = renamedTabs;
+  await chrome.storage.local.set({ renamedTabs });
+}
+
 // --- Initialization ---
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -54,6 +69,7 @@ function initialize() {
 
   // Scan existing grouped tabs and pin their current URLs
   scanExistingGroupedTabs();
+
 }
 
 async function scanExistingGroupedTabs() {
@@ -88,7 +104,27 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   await chrome.storage.session.set({ mruList: capped });
 
   scheduleThumbnailCapture(activeInfo.tabId);
+
+  // Ensure content script is injected (lazy — only when tab is activated)
+  ensureContentScript(activeInfo.tabId);
 });
+
+async function ensureContentScript(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+  } catch {
+    // Content script not loaded — inject it
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('about:')) {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content.js'],
+        });
+      }
+    } catch {}
+  }
+}
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
@@ -114,10 +150,10 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   delete thumbnails[tabId];
   await chrome.storage.session.set({ thumbnails });
 
-  const { renamedTabs = {} } = await chrome.storage.local.get('renamedTabs');
+  const renamedTabs = await getRenamedTabs();
   if (renamedTabs[tabId]) {
     delete renamedTabs[tabId];
-    await chrome.storage.local.set({ renamedTabs });
+    await setRenamedTabs(renamedTabs);
   }
 });
 
@@ -340,13 +376,26 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     command === 'switch-tab-forward' ||
     command === 'switch-tab-backward'
   ) {
+    const t0 = performance.now();
+    console.log(`[SWITCHER] ${new Date().toISOString()} Command received: ${command}, tab: ${tab?.id}, url: ${tab?.url?.slice(0, 60)}`);
+
     const direction = command === 'switch-tab-forward' ? 1 : -1;
+
+    const t1 = performance.now();
     const { mruList = [] } = await chrome.storage.session.get('mruList');
+    console.log(`[SWITCHER] +${(performance.now() - t1).toFixed(1)}ms storage.session.get(mruList) — ${mruList.length} entries: [${mruList.slice(0, 6).join(', ')}]`);
+
+    const t2 = performance.now();
     const { thumbnails = {} } =
       await chrome.storage.session.get('thumbnails');
-    const { renamedTabs = {} } = await chrome.storage.local.get('renamedTabs');
+    console.log(`[SWITCHER] +${(performance.now() - t2).toFixed(1)}ms storage.session.get(thumbnails) — ${Object.keys(thumbnails).length} entries`);
+
+    const t3 = performance.now();
+    const renamedTabs = await getRenamedTabs();
+    console.log(`[SWITCHER] +${(performance.now() - t3).toFixed(1)}ms getRenamedTabs (cached)`);
 
     const tabInfos = [];
+    const t4 = performance.now();
     for (const tabId of mruList.slice(0, 6)) {
       try {
         const tabData = await chrome.tabs.get(tabId);
@@ -358,20 +407,31 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
           thumbnail: thumbnails[tabId] || null,
           windowId: tabData.windowId,
         });
-      } catch {
-        // Tab was closed, skip
+      } catch (err) {
+        console.log(`[SWITCHER] tabs.get(${tabId}) failed: ${err.message}`);
       }
     }
+    console.log(`[SWITCHER] +${(performance.now() - t4).toFixed(1)}ms built ${tabInfos.length} tab infos`);
 
-    if (tabInfos.length === 0) return;
+    if (tabInfos.length === 0) {
+      console.log(`[SWITCHER] No tabs to show, aborting`);
+      return;
+    }
 
     if (tab?.id) {
+      const t5 = performance.now();
+      console.log(`[SWITCHER] Sending SHOW_TAB_SWITCHER to tab ${tab.id}...`);
       await sendToTab(tab.id, {
         type: 'SHOW_TAB_SWITCHER',
         tabs: tabInfos,
         direction,
       });
+      console.log(`[SWITCHER] +${(performance.now() - t5).toFixed(1)}ms sendToTab completed`);
+    } else {
+      console.log(`[SWITCHER] No active tab to send to`);
     }
+
+    console.log(`[SWITCHER] Total: ${(performance.now() - t0).toFixed(1)}ms`);
   }
 });
 
@@ -380,13 +440,12 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SAVE_TAB_NAME') {
     (async () => {
-      const { renamedTabs = {} } =
-        await chrome.storage.local.get('renamedTabs');
+      const renamedTabs = await getRenamedTabs();
       renamedTabs[message.tabId] = {
         title: message.title,
         url: message.url,
       };
-      await chrome.storage.local.set({ renamedTabs });
+      await setRenamedTabs(renamedTabs);
       sendResponse({ ok: true });
     })();
     return true;
@@ -399,8 +458,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ customTitle: null });
         return;
       }
-      const { renamedTabs = {} } =
-        await chrome.storage.local.get('renamedTabs');
+      const renamedTabs = await getRenamedTabs();
       const entry = renamedTabs[tabId];
       sendResponse({ customTitle: entry?.title || null });
     })();
@@ -495,7 +553,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SEARCH_TABS') {
     (async () => {
       const allTabs = await chrome.tabs.query({});
-      const { renamedTabs = {} } = await chrome.storage.local.get('renamedTabs');
+      const renamedTabs = await getRenamedTabs();
       const tabs = allTabs
         .filter(t => t.url && !t.url.startsWith('chrome-extension://'))
         .map(t => ({
@@ -540,11 +598,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'CLEAR_TAB_NAME') {
     (async () => {
       const tabId = message.tabId;
-      const { renamedTabs = {} } =
-        await chrome.storage.local.get('renamedTabs');
+      const renamedTabs = await getRenamedTabs();
       if (renamedTabs[tabId]) {
         delete renamedTabs[tabId];
-        await chrome.storage.local.set({ renamedTabs });
+        await setRenamedTabs(renamedTabs);
       }
       sendResponse({ ok: true });
     })();
@@ -556,7 +613,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete') return;
-  const { renamedTabs = {} } = await chrome.storage.local.get('renamedTabs');
+  const renamedTabs = await getRenamedTabs();
   const entry = renamedTabs[tabId];
   if (!entry) return;
 
@@ -597,19 +654,25 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 // --- Helper: Send message to tab with fallback injection ---
 
 async function sendToTab(tabId, message) {
+  const t0 = performance.now();
   try {
     await chrome.tabs.sendMessage(tabId, message);
-  } catch {
+    console.log(`[SEND] +${(performance.now() - t0).toFixed(1)}ms sendMessage(${tabId}, ${message.type}) — direct success`);
+  } catch (err) {
+    console.log(`[SEND] +${(performance.now() - t0).toFixed(1)}ms sendMessage(${tabId}, ${message.type}) — FAILED: ${err.message}`);
+    console.log(`[SEND] Falling back to executeScript injection...`);
     try {
+      const t1 = performance.now();
       await chrome.scripting.executeScript({
         target: { tabId },
         files: ['content.js'],
       });
-      // Small delay to let content script initialize
+      console.log(`[SEND] +${(performance.now() - t1).toFixed(1)}ms executeScript completed`);
       await new Promise((r) => setTimeout(r, 100));
       await chrome.tabs.sendMessage(tabId, message);
-    } catch {
-      // Restricted page — can't inject
+      console.log(`[SEND] +${(performance.now() - t0).toFixed(1)}ms retry sendMessage — success`);
+    } catch (err2) {
+      console.log(`[SEND] +${(performance.now() - t0).toFixed(1)}ms retry FAILED: ${err2.message}`);
     }
   }
 }
