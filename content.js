@@ -609,6 +609,7 @@
   function showTabSearch(tabs) {
     if (searchOverlay) closeSearch();
 
+    host.contentEditable = 'true';
     isSearchOpen = true;
     let searchSelectedIndex = 0;
     let filteredTabs = tabs;
@@ -752,6 +753,7 @@
   }
 
   function closeSearch() {
+    host.removeAttribute('contenteditable');
     if (searchOverlay) {
       searchOverlay.remove();
       searchOverlay = null;
